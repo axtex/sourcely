@@ -1,0 +1,14 @@
+fastapi
+uvicorn[standard]
+python-multipart
+boto3
+pymupdf
+langchain
+langchain-openai
+langchain-community
+langchain-text-splitters
+psycopg2-binary
+pgvector
+anthropic
+python-dotenv
+numpy
