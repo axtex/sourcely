@@ -6,6 +6,7 @@ Run with: uvicorn main:app --reload
 """
 
 import logging
+import os
 import sys
 from contextlib import asynccontextmanager
 
@@ -63,6 +64,16 @@ app = FastAPI(
 # allow_origin_regex covers Vite dev-server fallback ports (e.g. 5174 when 5173
 # is taken). A fixed allow_origins list alone causes 400 "Disallowed CORS origin"
 # on preflight for POST /documents/upload.
+#
+# ALLOWED_ORIGINS env var (comma-separated) adds production URLs at runtime —
+# set it in Railway to include the Vercel frontend URL, e.g.:
+#   ALLOWED_ORIGINS=https://sourcely.vercel.app,https://sourcely-git-main.vercel.app
+_extra_origins = [
+    o.strip()
+    for o in os.getenv("ALLOWED_ORIGINS", "").split(",")
+    if o.strip()
+]
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -70,6 +81,7 @@ app.add_middleware(
         "http://localhost:3000",
         "http://127.0.0.1:5173",
         "http://127.0.0.1:3000",
+        *_extra_origins,
     ],
     allow_origin_regex=r"http://(localhost|127\.0\.0\.1):\d+",
     allow_credentials=True,

@@ -1,0 +1,11 @@
+# Lambda runtime dependencies — kept minimal (no FastAPI, no dev tools)
+# These are installed into the deployment package by build.sh
+
+pymupdf                  # PDF text extraction (fitz)
+langchain-text-splitters # RecursiveCharacterTextSplitter for chunking
+psycopg2-binary          # PostgreSQL driver (binary = no gcc needed)
+pgvector                 # psycopg2 adapter for pgvector column type
+openai                   # Embeddings (text-embedding-3-small)
+anthropic                # Available if Claude is ever needed in Lambda
+numpy                    # Required by pgvector internals
+boto3                    # S3 download (already in Lambda runtime but pin for local test)

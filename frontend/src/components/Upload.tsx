@@ -10,7 +10,7 @@ import { useState, useCallback } from "react";
 import { useDropzone, type FileRejection } from "react-dropzone";
 import axios from "axios";
 
-const API_BASE = "http://localhost:8000";
+const API_BASE = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
 const MAX_SIZE_BYTES = 20 * 1024 * 1024; // 20 MB
 
 interface Props {
@@ -143,9 +143,9 @@ export default function Upload({ onSuccess }: Props) {
         {/* Label */}
         <p className="text-sm text-gray-600">
           {state === "uploading"
-            ? "Uploading & processing…"
+            ? "Uploading…"
             : state === "success"
-            ? "Uploaded successfully"
+            ? "Uploaded — processing in background"
             : isDragActive
             ? "Drop your PDF here"
             : "Drop a PDF or click to browse"}
