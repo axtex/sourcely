@@ -67,7 +67,9 @@ def init_schema() -> bool:
     try:
         with open(init_path, encoding="utf-8") as f:
             sql = f.read()
-        conn = get_connection()
+        # Plain connection with autocommit — CREATE EXTENSION cannot run
+        # inside a transaction; register_vector() would start one.
+        conn = psycopg2.connect(DATABASE_URL)
         conn.autocommit = True
         with conn.cursor() as cur:
             cur.execute(sql)
