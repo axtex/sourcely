@@ -25,15 +25,15 @@ def _get_s3_client():
     """
     Create an S3 client.
 
-    Local dev: uses the named AWS profile from ~/.aws/credentials.
-    Railway / Lambda: AWS_PROFILE is unset so boto3 falls back to
-    AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY environment variables,
-    which Railway injects automatically.
+    Prefer explicit env-var credentials (Railway, Lambda) over a named
+    local profile. AWS_PROFILE is only used when no access key is present,
+    which matches `aws configure --profile sourcely` on a dev machine.
     """
-    if AWS_PROFILE:
+    if os.getenv("AWS_ACCESS_KEY_ID"):
+        session = boto3.Session(region_name=AWS_REGION)
+    elif AWS_PROFILE:
         session = boto3.Session(profile_name=AWS_PROFILE, region_name=AWS_REGION)
     else:
-        # No profile — rely on env vars (Railway) or IAM role (Lambda)
         session = boto3.Session(region_name=AWS_REGION)
     return session.client("s3")
 

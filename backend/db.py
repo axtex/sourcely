@@ -56,6 +56,29 @@ def test_connection() -> bool:
         return False
 
 
+def init_schema() -> bool:
+    """
+    Apply init.sql on startup (idempotent — uses IF NOT EXISTS).
+
+    Railway Postgres does not auto-run docker-entrypoint-initdb.d scripts,
+    so fresh deployments need this before uploads or queries can work.
+    """
+    init_path = os.path.join(os.path.dirname(__file__), "init.sql")
+    try:
+        with open(init_path, encoding="utf-8") as f:
+            sql = f.read()
+        conn = get_connection()
+        conn.autocommit = True
+        with conn.cursor() as cur:
+            cur.execute(sql)
+        conn.close()
+        logger.info("✓ Database schema initialized")
+        return True
+    except Exception as e:
+        logger.error(f"Schema initialization failed: {e}")
+        return False
+
+
 # ── Document helpers ──────────────────────────────────────────────────────────
 
 def insert_document(conn, filename: str, s3_key: str, file_size: int) -> str:

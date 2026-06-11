@@ -14,7 +14,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from db import test_connection
+from db import init_schema, test_connection
 from routers import documents, query
 
 # ── Logging ───────────────────────────────────────────────────────────────────
@@ -34,6 +34,7 @@ async def lifespan(app: FastAPI):
 
     if test_connection():
         logger.info("✓ Database connection OK")
+        init_schema()
     else:
         logger.warning("✗ Database connection FAILED — check DATABASE_URL and that Postgres is running")
 
