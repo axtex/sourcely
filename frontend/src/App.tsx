@@ -1,8 +1,8 @@
 /**
  * App.tsx — Root layout
  *
- * Two-panel design:
- *   Left (35%): document management — upload + list
+ * Top bar with the "sourcely" mono wordmark sits above a 35/65 split:
+ *   Left  (35%): document management — upload + list
  *   Right (65%): chat interface
  *
  * selectedDocumentId flows down to both panels:
@@ -17,7 +17,6 @@ import Chat from "./components/Chat";
 import "./index.css";
 
 export default function App() {
-  // null means "search all documents"
   const [selectedDocumentId, setSelectedDocumentId] = useState<string | null>(null);
   // Bump this counter to trigger a DocumentList re-fetch after upload
   const [refreshKey, setRefreshKey] = useState(0);
@@ -27,34 +26,54 @@ export default function App() {
   }
 
   return (
-    <div className="flex h-screen bg-gray-50 font-sans">
-      {/* ── Left panel ── */}
-      <aside className="w-[35%] min-w-[280px] border-r border-gray-200 bg-white flex flex-col">
-        {/* Header */}
-        <div className="px-5 py-4 border-b border-gray-200">
-          <h1 className="text-xl font-semibold text-gray-900 tracking-tight">Sourcely</h1>
-          <p className="text-xs text-gray-400 mt-0.5">RAG-powered document Q&amp;A</p>
-        </div>
+    <div className="flex flex-col h-screen font-sans" style={{ background: "var(--bg)", color: "var(--fg)" }}>
 
-        {/* Upload zone */}
-        <div className="px-4 py-4 border-b border-gray-100">
-          <Upload onSuccess={handleUploadSuccess} />
-        </div>
+      {/* ── Top bar ── */}
+      <header
+        className="flex items-center px-6 h-11 flex-shrink-0"
+        style={{ borderBottom: "1px solid var(--border)" }}
+      >
+        {/* Wordmark in mono — lowercase intentional, tool-like */}
+        <span className="font-mono text-sm tracking-tight" style={{ color: "var(--fg)" }}>
+          sourcely
+        </span>
+        <span
+          className="ml-4 text-[10px] uppercase tracking-[0.14em] hidden sm:block"
+          style={{ color: "var(--muted)" }}
+        >
+          document Q&amp;A
+        </span>
+      </header>
 
-        {/* Document list fills remaining space with scroll */}
-        <div className="flex-1 overflow-y-auto">
-          <DocumentList
-            key={refreshKey}
-            selectedId={selectedDocumentId}
-            onSelect={setSelectedDocumentId}
-          />
-        </div>
-      </aside>
+      {/* ── Split panels ── */}
+      <div className="flex flex-1 min-h-0">
 
-      {/* ── Right panel ── */}
-      <main className="flex-1 flex flex-col min-w-0">
-        <Chat selectedDocumentId={selectedDocumentId} />
-      </main>
+        {/* Left panel — 35% */}
+        <aside
+          className="w-[35%] min-w-[260px] flex flex-col"
+          style={{ borderRight: "1px solid var(--border)", background: "var(--bg)" }}
+        >
+          {/* Upload zone */}
+          <div className="px-4 py-4" style={{ borderBottom: "1px solid var(--border)" }}>
+            <Upload onSuccess={handleUploadSuccess} />
+          </div>
+
+          {/* Document list fills remaining space */}
+          <div className="flex-1 overflow-y-auto">
+            <DocumentList
+              key={refreshKey}
+              selectedId={selectedDocumentId}
+              onSelect={setSelectedDocumentId}
+            />
+          </div>
+        </aside>
+
+        {/* Right panel — 65% */}
+        <main className="flex-1 flex flex-col min-w-0" style={{ background: "var(--bg)" }}>
+          <Chat selectedDocumentId={selectedDocumentId} />
+        </main>
+
+      </div>
     </div>
   );
 }

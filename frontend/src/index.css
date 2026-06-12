@@ -1,15 +1,85 @@
 /* Tailwind v4 — single import replaces the old @tailwind directives */
 @import "tailwindcss";
 
-/* Base reset for the app shell */
+/*
+ * Override Tailwind's font stacks so font-sans and font-mono classes
+ * reference our Google Fonts choices throughout the app.
+ */
+@theme {
+  --font-sans: 'Outfit', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Fira Code', ui-monospace, monospace;
+}
+
+/*
+ * Design token system — single source of truth for colour and surface values.
+ * All components read from these variables so a theme change is one edit here.
+ *
+ *   --bg           Page background (warm parchment white)
+ *   --fg           Primary text (warm near-black)
+ *   --accent       Interactive accent (same as fg for editorial restraint)
+ *   --border       Subtle warm-gray dividers
+ *   --muted        De-emphasised text (timestamps, labels)
+ *   --surface      Secondary surfaces (hover states, sidebar background)
+ *   --dark-surface Dark background for source passage blocks
+ *   --dark-text    Warm light text used on dark surfaces
+ */
+:root {
+  --bg:           #faf9f7;
+  --fg:           #1c1b18;
+  --accent:       #1c1b18;
+  --border:       #e8e4dc;
+  --muted:        #968f84;
+  --surface:      #f0ede7;
+  --dark-surface: #18181b;
+  --dark-text:    #e4e2dd;
+}
+
 body {
   margin: 0;
-  font-family: system-ui, -apple-system, sans-serif;
-  background: #f9fafb;
-  color: #111827;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
 }
 
 #root {
   width: 100%;
   height: 100vh;
+}
+
+/*
+ * Pulse animation for in-progress status dots.
+ * Used by DocumentList to signal documents still being processed.
+ */
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.2; }
+}
+
+.animate-pulse-dot {
+  animation: pulse-dot 1.5s ease-in-out infinite;
+}
+
+/* Skeleton shimmer for loading placeholders */
+@keyframes shimmer {
+  from { background-position: -200% 0; }
+  to   { background-position:  200% 0; }
+}
+
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--surface) 25%,
+    var(--border)  50%,
+    var(--surface) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.6s ease-in-out infinite;
+  border-radius: 3px;
+}
+
+/* Typing indicator bounce used in Chat.tsx TypingDots */
+@keyframes bounce {
+  0%, 80%, 100% { transform: translateY(0); }
+  40%            { transform: translateY(-5px); }
 }

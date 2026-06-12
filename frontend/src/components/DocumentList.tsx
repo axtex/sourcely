@@ -3,12 +3,15 @@
  *
  * Fetches from GET /documents on mount (and whenever the parent bumps the key).
  *
- * Status polling (Day 2):
- *   After upload the server returns immediately with status="uploaded".
- *   This component detects any document in a transitional state (uploaded /
- *   processing) and starts polling GET /documents/{id}/status every 3 seconds.
- *   The interval is cleared automatically when all docs reach a terminal state
- *   (processed / failed) or when the component unmounts.
+ * Status polling:
+ *   After upload the server returns status="uploaded". This component detects
+ *   any document in a transitional state (uploaded / processing) and polls
+ *   GET /documents/{id}/status every 3 seconds. The interval is cleared
+ *   automatically when all docs reach a terminal state (processed / failed)
+ *   or when the component unmounts.
+ *
+ * Loading state: shimmer skeleton rows while the initial fetch is in-flight.
+ * Empty state: instructional placeholder when no documents exist yet.
  */
 
 import { useEffect, useState } from "react";
@@ -31,16 +34,7 @@ interface Props {
   onSelect: (id: string | null) => void;
 }
 
-// Terminal states: no more polling needed once we reach these
 const TERMINAL_STATUSES = new Set<Document["status"]>(["processed", "failed"]);
-
-// Status badge colours
-const STATUS_STYLES: Record<Document["status"], string> = {
-  uploaded:   "bg-gray-100 text-gray-600",
-  processing: "bg-yellow-100 text-yellow-700",
-  processed:  "bg-green-100 text-green-700",
-  failed:     "bg-red-100 text-red-600",
-};
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -49,27 +43,46 @@ function formatBytes(bytes: number): string {
 }
 
 function formatDate(iso: string): string {
-  return new Date(iso).toLocaleDateString(undefined, {
-    month: "short",
-    day: "numeric",
-  });
+  return new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
-/** Small inline spinner shown next to in-progress badges */
-function Spinner() {
+/** Small status indicator dot with colour + optional pulse for in-progress states */
+function StatusDot({ status }: { status: Document["status"] }) {
+  const color =
+    status === "processed"
+      ? "#16a34a"
+      : status === "processing" || status === "uploaded"
+      ? "#d97706"
+      : "#dc2626";
+
+  const pulse = status === "processing" || status === "uploaded";
+
   return (
-    <svg
-      className="inline-block w-3 h-3 ml-1 animate-spin text-yellow-600"
-      fill="none"
-      viewBox="0 0 24 24"
-    >
-      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-      <path
-        className="opacity-75"
-        fill="currentColor"
-        d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"
-      />
-    </svg>
+    <span
+      className={pulse ? "animate-pulse-dot" : ""}
+      style={{
+        display: "inline-block",
+        width: "6px",
+        height: "6px",
+        borderRadius: "50%",
+        background: color,
+        flexShrink: 0,
+      }}
+    />
+  );
+}
+
+/** Shimmer skeleton rows shown while loading */
+function SkeletonList() {
+  return (
+    <div style={{ padding: "12px 16px", display: "flex", flexDirection: "column", gap: "14px" }}>
+      {[80, 60, 72].map((w, i) => (
+        <div key={i} style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+          <div className="skeleton" style={{ height: "11px", width: `${w}%` }} />
+          <div className="skeleton" style={{ height: "9px", width: "40%" }} />
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -77,8 +90,8 @@ export default function DocumentList({ selectedId, onSelect }: Props) {
   const [docs, setDocs] = useState<Document[]>([]);
   const [loading, setLoading] = useState(true);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [hoveredId, setHoveredId] = useState<string | null>(null);
 
-  // ── Initial fetch ──────────────────────────────────────────────────────────
   useEffect(() => {
     fetchDocs();
   }, []);
@@ -96,36 +109,29 @@ export default function DocumentList({ selectedId, onSelect }: Props) {
   }
 
   // ── Status polling ─────────────────────────────────────────────────────────
-  //
-  // Derive the set of IDs that still need polling from current docs state.
-  // We stringify them into a stable key so the effect only re-runs when the
-  // set actually changes (a new upload arrives or a doc reaches a terminal state).
   const transitionalIds = docs
     .filter((d) => !TERMINAL_STATUSES.has(d.status))
     .map((d) => d.id);
   const pollingKey = transitionalIds.join(",");
 
   useEffect(() => {
-    if (transitionalIds.length === 0) return; // nothing to poll
+    if (transitionalIds.length === 0) return;
 
     const interval = setInterval(async () => {
-      // Poll all in-flight docs in parallel; each update is applied independently
       await Promise.all(
         transitionalIds.map(async (id) => {
           try {
             const res = await axios.get(`${API_BASE}/documents/${id}/status`);
-            // Merge only the fields the status endpoint returns (status, chunk_count, processed_at)
             setDocs((prev) =>
               prev.map((d) => (d.id === id ? { ...d, ...res.data } : d))
             );
           } catch {
-            // Silent — a transient network error doesn't need user feedback here
+            // silent — transient network errors don't need user feedback here
           }
         })
       );
     }, 3000);
 
-    // Cleanup: clear interval when transitionalIds changes or component unmounts
     return () => clearInterval(interval);
   }, [pollingKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -148,108 +154,162 @@ export default function DocumentList({ selectedId, onSelect }: Props) {
   }
 
   // ── Render ─────────────────────────────────────────────────────────────────
+
   if (loading) {
     return (
-      <div className="px-4 py-6 text-center text-sm text-gray-400">
-        Loading documents…
-      </div>
+      <>
+        <SectionLabel />
+        <SkeletonList />
+      </>
     );
   }
 
   return (
-    <div className="py-2">
-      {/* "All documents" option */}
+    <div>
+      <SectionLabel />
+
+      {/* "All documents" entry */}
       <button
         onClick={() => onSelect(null)}
-        className={`w-full text-left px-4 py-2.5 text-sm flex items-center gap-2 transition-colors ${
-          selectedId === null
-            ? "bg-indigo-50 text-indigo-700 font-medium"
-            : "text-gray-600 hover:bg-gray-50"
-        }`}
+        style={{
+          width: "100%",
+          textAlign: "left",
+          padding: "8px 16px",
+          display: "flex",
+          alignItems: "center",
+          gap: "8px",
+          fontSize: "12px",
+          background: selectedId === null ? "var(--surface)" : "transparent",
+          color: selectedId === null ? "var(--fg)" : "var(--muted)",
+          border: "none",
+          cursor: "pointer",
+          transition: "background 0.1s",
+          fontFamily: "inherit",
+        }}
       >
-        <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
-            d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
         </svg>
         All documents
       </button>
 
-      {docs.length > 0 && <div className="mx-4 my-1 border-t border-gray-100" />}
-
-      {docs.length === 0 ? (
-        <p className="px-4 py-4 text-sm text-gray-400 text-center">
-          No documents yet — upload a PDF above.
-        </p>
-      ) : (
-        docs.map((doc) => {
-          const isTransitional = !TERMINAL_STATUSES.has(doc.status);
-          // Only processed docs can be meaningfully queried
-          const isSelectable = doc.status === "processed";
-
-          return (
-            <div
-              key={doc.id}
-              onClick={() => isSelectable && onSelect(doc.id)}
-              className={`group relative px-4 py-3 transition-colors border-l-2 ${
-                selectedId === doc.id
-                  ? "bg-indigo-50 border-indigo-500"
-                  : isSelectable
-                  ? "cursor-pointer hover:bg-gray-50 border-transparent"
-                  : "cursor-default border-transparent opacity-80"
-              }`}
-            >
-              {/* Filename */}
-              <p className="text-sm text-gray-800 font-medium truncate pr-6" title={doc.filename}>
-                {doc.filename}
-              </p>
-
-              {/* Meta row */}
-              <div className="flex items-center gap-2 mt-1 flex-wrap">
-                {/* Status badge + spinner */}
-                <span
-                  className={`inline-flex items-center px-1.5 py-0.5 rounded text-[11px] font-medium ${
-                    STATUS_STYLES[doc.status]
-                  }`}
-                >
-                  {doc.status}
-                  {/* Spinner only while actively processing (not just "uploaded") */}
-                  {isTransitional && <Spinner />}
-                </span>
-
-                {/* Chunk count — only shown after processing */}
-                {doc.status === "processed" && (
-                  <span className="text-[11px] text-gray-400">
-                    {doc.chunk_count} chunks
-                  </span>
-                )}
-
-                {/* File size */}
-                <span className="text-[11px] text-gray-400">{formatBytes(doc.file_size ?? 0)}</span>
-
-                {/* Upload date */}
-                <span className="text-[11px] text-gray-400">{formatDate(doc.created_at)}</span>
-              </div>
-
-              {/* Delete button — appears on hover */}
-              <button
-                onClick={(e) => handleDelete(doc, e)}
-                disabled={deletingId === doc.id}
-                className="absolute top-3 right-3 opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded text-gray-400 hover:text-red-500 hover:bg-red-50 disabled:opacity-50"
-                title="Delete document"
-              >
-                {deletingId === doc.id ? (
-                  <span className="text-xs">…</span>
-                ) : (
-                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                      d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                  </svg>
-                )}
-              </button>
-            </div>
-          );
-        })
+      {/* Divider */}
+      {docs.length > 0 && (
+        <div style={{ margin: "2px 16px", height: "1px", background: "var(--border)" }} />
       )}
+
+      {/* Empty state */}
+      {docs.length === 0 && (
+        <p
+          className="text-xs text-center"
+          style={{ padding: "24px 16px", color: "var(--muted)", lineHeight: 1.6 }}
+        >
+          No documents yet.
+          <br />
+          Upload a PDF above.
+        </p>
+      )}
+
+      {/* Document rows */}
+      {docs.map((doc) => {
+        const isSelectable = doc.status === "processed";
+        const isSelected = selectedId === doc.id;
+        const isHovered = hoveredId === doc.id;
+
+        return (
+          <div
+            key={doc.id}
+            onClick={() => isSelectable && onSelect(doc.id)}
+            onMouseEnter={() => setHoveredId(doc.id)}
+            onMouseLeave={() => setHoveredId(null)}
+            style={{
+              position: "relative",
+              padding: "10px 16px",
+              cursor: isSelectable ? "pointer" : "default",
+              borderLeft: `2px solid ${isSelected ? "var(--fg)" : "transparent"}`,
+              background: isSelected ? "var(--surface)" : isHovered && isSelectable ? "var(--surface)" : "transparent",
+              transition: "background 0.1s, border-color 0.1s",
+              opacity: !isSelectable && doc.status !== "uploaded" && doc.status !== "processing" ? 0.5 : 1,
+            }}
+          >
+            {/* Filename */}
+            <p
+              className="text-sm font-medium truncate"
+              style={{ color: "var(--fg)", paddingRight: "20px", marginBottom: "4px" }}
+              title={doc.filename}
+            >
+              {doc.filename}
+            </p>
+
+            {/* Meta row */}
+            <div
+              className="flex items-center gap-2 font-mono flex-wrap"
+              style={{ fontSize: "10px", color: "var(--muted)" }}
+            >
+              {/* Status dot + label */}
+              <span className="flex items-center gap-1">
+                <StatusDot status={doc.status} />
+                <span>{doc.status}</span>
+              </span>
+
+              {/* Chunk count — only after processing */}
+              {doc.status === "processed" && (
+                <span>{doc.chunk_count} chunks</span>
+              )}
+
+              <span>{formatBytes(doc.file_size ?? 0)}</span>
+              <span>{formatDate(doc.created_at)}</span>
+            </div>
+
+            {/* Delete button — appears on hover */}
+            <button
+              onClick={(e) => handleDelete(doc, e)}
+              disabled={deletingId === doc.id}
+              title="Delete document"
+              style={{
+                position: "absolute",
+                top: "10px",
+                right: "10px",
+                opacity: isHovered ? 1 : 0,
+                transition: "opacity 0.15s",
+                padding: "3px",
+                border: "none",
+                background: "transparent",
+                cursor: "pointer",
+                color: "var(--muted)",
+                lineHeight: 0,
+              }}
+              onMouseEnter={(e) => (e.currentTarget.style.color = "#dc2626")}
+              onMouseLeave={(e) => (e.currentTarget.style.color = "var(--muted)")}
+            >
+              {deletingId === doc.id ? (
+                <span style={{ fontSize: "11px" }}>…</span>
+              ) : (
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                </svg>
+              )}
+            </button>
+          </div>
+        );
+      })}
     </div>
+  );
+}
+
+/** "DOCUMENTS" section header — all-caps mono label */
+function SectionLabel() {
+  return (
+    <p
+      className="font-mono uppercase"
+      style={{
+        fontSize: "9px",
+        letterSpacing: "0.14em",
+        color: "var(--muted)",
+        padding: "12px 16px 6px",
+      }}
+    >
+      Documents
+    </p>
   );
 }
