@@ -21,7 +21,7 @@ interface Source {
 
 interface Props {
   source: Source;
-  index: number; // citation number [1], [2], etc.
+  index: number;
 }
 
 const PREVIEW_LENGTH = 280;
@@ -37,6 +37,13 @@ export default function SourceCard({ source, index }: Props) {
 
   const similarityPct = Math.round(source.similarity * 100);
 
+  const matchColor =
+    similarityPct >= 80
+      ? "var(--match-high)"
+      : similarityPct >= 60
+      ? "var(--match-mid)"
+      : "var(--dark-text)";
+
   return (
     <div
       style={{
@@ -46,16 +53,15 @@ export default function SourceCard({ source, index }: Props) {
         fontSize: "12px",
       }}
     >
-      {/* Metadata bar: citation number · page · similarity */}
       <div
         className="font-mono flex items-center gap-3"
         style={{
           fontSize: "10px",
-          color: "var(--muted)",
+          color: "var(--dark-text)",
+          opacity: 0.65,
           marginBottom: "8px",
         }}
       >
-        {/* Citation number */}
         <span
           style={{
             display: "inline-flex",
@@ -64,35 +70,25 @@ export default function SourceCard({ source, index }: Props) {
             width: "18px",
             height: "18px",
             borderRadius: "3px",
-            border: "1px solid rgba(255,255,255,0.12)",
+            border: "1px solid var(--dark-border)",
             color: "var(--dark-text)",
             fontSize: "10px",
             flexShrink: 0,
+            opacity: 1,
           }}
         >
           {index}
         </span>
 
         {source.page_number != null && (
-          <span>p. {source.page_number}</span>
+          <span style={{ opacity: 1 }}>p. {source.page_number}</span>
         )}
 
-        {/* Similarity colour: green ≥ 80, amber 60–79, muted otherwise */}
-        <span
-          style={{
-            color:
-              similarityPct >= 80
-                ? "#4ade80"
-                : similarityPct >= 60
-                ? "#fbbf24"
-                : "var(--muted)",
-          }}
-        >
+        <span style={{ color: matchColor, opacity: 1 }}>
           {similarityPct}% match
         </span>
       </div>
 
-      {/* Passage text — mono, warm light on dark */}
       <p
         className="font-mono"
         style={{
@@ -106,21 +102,23 @@ export default function SourceCard({ source, index }: Props) {
         {displayText}
       </p>
 
-      {/* Show more / less toggle */}
       {isLong && (
         <button
+          type="button"
           onClick={() => setExpanded((v) => !v)}
-          className="font-mono"
+          className="font-mono interactive-btn"
           style={{
             marginTop: "8px",
             fontSize: "10px",
-            color: "var(--muted)",
+            color: "var(--dark-text)",
+            opacity: 0.65,
             background: "transparent",
             border: "none",
             cursor: "pointer",
-            padding: 0,
+            padding: "4px 0",
             textDecoration: "underline",
             textDecorationStyle: "dotted",
+            fontFamily: "inherit",
           }}
         >
           {expanded ? "show less" : "show more"}

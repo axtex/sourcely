@@ -10,7 +10,7 @@
  * Input area is pinned to the bottom (flex-shrink-0).
  */
 
-import { useState, useRef, useEffect, type KeyboardEvent } from "react";
+import { useState, useRef, useEffect, useId, type KeyboardEvent } from "react";
 import axios from "axios";
 import SourceCard from "./SourceCard";
 
@@ -25,34 +25,35 @@ interface Source {
 }
 
 interface Message {
+  id: string;
   question: string;
   answer: string;
   sources: Source[];
+  isError?: boolean;
 }
 
 interface Props {
   selectedDocumentId: string | null;
 }
 
-/** Animated typing indicator: three dots that bob in sequence */
+let messageCounter = 0;
+function nextMessageId(): string {
+  messageCounter += 1;
+  return `msg-${messageCounter}-${Date.now()}`;
+}
+
+/** Typing indicator: three dots with staggered ease-out pulse */
 function TypingDots() {
   return (
-    <div style={{ display: "flex", gap: "5px", alignItems: "center", padding: "2px 0" }}>
-      {[0, 150, 300].map((delay, i) => (
-        <span
-          key={i}
-          style={{
-            width: "6px",
-            height: "6px",
-            borderRadius: "50%",
-            background: "var(--muted)",
-            display: "inline-block",
-            animation: `bounce 1.2s ease-in-out ${delay}ms infinite`,
-          }}
-        />
+    <div
+      className="typing-dots"
+      style={{ display: "flex", gap: "5px", alignItems: "center", padding: "2px 0" }}
+      aria-label="Waiting for answer"
+      role="status"
+    >
+      {[0, 180, 360].map((delay, i) => (
+        <span key={i} className="typing-dot" style={{ animationDelay: `${delay}ms` }} />
       ))}
-      {/* Inline keyframes via a style tag would be cleaner, but Tailwind's
-          animate-bounce works here: we use inline style for the delay only */}
     </div>
   );
 }
@@ -61,24 +62,29 @@ export default function Chat({ selectedDocumentId }: Props) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
-  const [expandedSources, setExpandedSources] = useState<Set<number>>(new Set());
+  const [expandedSources, setExpandedSources] = useState<Set<string>>(new Set());
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const inputLabelId = useId();
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    const prefersReduced =
+      typeof window !== "undefined" &&
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    bottomRef.current?.scrollIntoView({
+      behavior: prefersReduced ? "instant" : "smooth",
+    });
   }, [messages, loading]);
 
-  // Clear chat when switching documents — stale answers would be misleading
   useEffect(() => {
     setMessages([]);
     setExpandedSources(new Set());
   }, [selectedDocumentId]);
 
-  function toggleSources(index: number) {
+  function toggleSources(messageId: string) {
     setExpandedSources((prev) => {
       const next = new Set(prev);
-      next.has(index) ? next.delete(index) : next.add(index);
+      next.has(messageId) ? next.delete(messageId) : next.add(messageId);
       return next;
     });
   }
@@ -90,7 +96,6 @@ export default function Chat({ selectedDocumentId }: Props) {
     setInput("");
     setLoading(true);
 
-    // Auto-shrink textarea after clearing
     if (textareaRef.current) textareaRef.current.style.height = "auto";
 
     try {
@@ -101,7 +106,10 @@ export default function Chat({ selectedDocumentId }: Props) {
       });
 
       const { answer, sources } = res.data;
-      setMessages((prev) => [...prev, { question, answer, sources }]);
+      setMessages((prev) => [
+        ...prev,
+        { id: nextMessageId(), question, answer, sources },
+      ]);
     } catch (err: unknown) {
       const detail =
         axios.isAxiosError(err) && err.response?.data?.detail
@@ -109,7 +117,13 @@ export default function Chat({ selectedDocumentId }: Props) {
           : "Failed to get an answer. Check server logs.";
       setMessages((prev) => [
         ...prev,
-        { question, answer: `Error: ${detail}`, sources: [] },
+        {
+          id: nextMessageId(),
+          question,
+          answer: detail,
+          sources: [],
+          isError: true,
+        },
       ]);
     } finally {
       setLoading(false);
@@ -123,7 +137,6 @@ export default function Chat({ selectedDocumentId }: Props) {
     }
   }
 
-  // Auto-grow textarea as the user types
   function handleInput(e: React.ChangeEvent<HTMLTextAreaElement>) {
     setInput(e.target.value);
     e.target.style.height = "auto";
@@ -133,34 +146,31 @@ export default function Chat({ selectedDocumentId }: Props) {
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
 
-      {/* ── Scope indicator ── */}
       <div
+        className="px-4 lg:px-6"
         style={{
-          padding: "8px 24px",
+          paddingTop: "8px",
+          paddingBottom: "8px",
           borderBottom: "1px solid var(--border)",
           flexShrink: 0,
         }}
       >
-        <p
-          className="font-mono uppercase"
-          style={{ fontSize: "9px", letterSpacing: "0.14em", color: "var(--muted)", margin: 0 }}
-        >
+        <p className="section-label">
           {selectedDocumentId ? "Selected document" : "All documents"}
         </p>
       </div>
 
-      {/* ── Message history ── */}
       <div
+        className="px-4 lg:px-6 py-6 lg:py-8 gap-7 lg:gap-8"
         style={{
           flex: 1,
           overflowY: "auto",
-          padding: "32px 24px",
           display: "flex",
           flexDirection: "column",
-          gap: "32px",
         }}
+        aria-live="polite"
+        aria-relevant="additions"
       >
-        {/* Empty state */}
         {messages.length === 0 && !loading && (
           <div
             style={{
@@ -170,7 +180,6 @@ export default function Chat({ selectedDocumentId }: Props) {
               alignItems: "center",
               justifyContent: "center",
               textAlign: "center",
-              color: "var(--muted)",
               gap: "8px",
               paddingBottom: "80px",
             }}
@@ -186,180 +195,178 @@ export default function Chat({ selectedDocumentId }: Props) {
           </div>
         )}
 
-        {/* Message turns */}
-        {messages.map((msg, i) => (
-          <div key={i} style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+        {messages.map((msg) => {
+          const sourcesExpanded = expandedSources.has(msg.id);
+          const sourcesPanelId = `sources-${msg.id}`;
 
-            {/* Question — right-aligned dark bubble */}
-            <div style={{ display: "flex", justifyContent: "flex-end" }}>
-              <div
-                className="text-sm"
-                style={{
-                  maxWidth: "72%",
-                  background: "var(--fg)",
-                  color: "var(--dark-text)",
-                  borderRadius: "12px 12px 3px 12px",
-                  padding: "10px 14px",
-                  lineHeight: 1.55,
-                }}
-              >
-                {msg.question}
-              </div>
-            </div>
+          return (
+            <div key={msg.id} style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
 
-            {/* Answer — left-aligned, no card, just text */}
-            <div style={{ display: "flex", justifyContent: "flex-start" }}>
-              <div style={{ maxWidth: "85%", display: "flex", flexDirection: "column", gap: "8px" }}>
-                <p
-                  className="text-sm"
+              <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                <div
+                  className="chat-bubble-user text-sm"
                   style={{
-                    color: "var(--fg)",
-                    lineHeight: 1.7,
-                    margin: 0,
+                    background: "var(--fg)",
+                    color: "var(--dark-text)",
+                    borderRadius: "12px 12px 3px 12px",
+                    padding: "10px 14px",
+                    lineHeight: 1.55,
                   }}
                 >
-                  {msg.answer}
-                </p>
+                  {msg.question}
+                </div>
+              </div>
 
-                {/* Sources section */}
-                {msg.sources.length > 0 && (
-                  <div>
-                    <button
-                      onClick={() => toggleSources(i)}
-                      className="font-mono"
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: "5px",
-                        fontSize: "10px",
-                        color: "var(--muted)",
-                        background: "transparent",
-                        border: "none",
-                        cursor: "pointer",
-                        padding: 0,
-                        letterSpacing: "0.03em",
-                      }}
+              <div style={{ display: "flex", justifyContent: "flex-start" }}>
+                <div className="chat-bubble-answer" style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+                  {msg.isError ? (
+                    <p className="error-banner" role="alert">
+                      {msg.answer}
+                    </p>
+                  ) : (
+                    <p
+                      className="text-sm"
+                      style={{ color: "var(--fg)", lineHeight: 1.7, margin: 0 }}
                     >
-                      {/* Chevron rotates when expanded */}
-                      <svg
-                        width="10" height="10"
-                        viewBox="0 0 24 24" fill="none"
-                        stroke="currentColor" strokeWidth="2.5"
-                        strokeLinecap="round" strokeLinejoin="round"
+                      {msg.answer}
+                    </p>
+                  )}
+
+                  {msg.sources.length > 0 && (
+                    <div>
+                      <button
+                        type="button"
+                        onClick={() => toggleSources(msg.id)}
+                        className="font-mono touch-target interactive-btn"
+                        aria-expanded={sourcesExpanded}
+                        aria-controls={sourcesPanelId}
                         style={{
-                          transform: expandedSources.has(i) ? "rotate(90deg)" : "rotate(0deg)",
-                          transition: "transform 0.15s",
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: "6px",
+                          fontSize: "11px",
+                          color: "var(--muted)",
+                          background: "transparent",
+                          border: "none",
+                          cursor: "pointer",
+                          padding: "0 8px",
+                          letterSpacing: "0.03em",
+                          marginLeft: "-8px",
+                          fontFamily: "inherit",
                         }}
                       >
-                        <path d="M9 18l6-6-6-6" />
-                      </svg>
-                      {expandedSources.has(i) ? "hide" : "show"} {msg.sources.length} source
-                      {msg.sources.length !== 1 ? "s" : ""}
-                    </button>
+                        <svg
+                          width="10" height="10"
+                          viewBox="0 0 24 24" fill="none"
+                          stroke="currentColor" strokeWidth="2.5"
+                          strokeLinecap="round" strokeLinejoin="round"
+                          className="sources-chevron"
+                          style={{
+                            transform: sourcesExpanded ? "rotate(90deg)" : "rotate(0deg)",
+                            flexShrink: 0,
+                          }}
+                        >
+                          <path d="M9 18l6-6-6-6" />
+                        </svg>
+                        {sourcesExpanded ? "hide" : "show"} {msg.sources.length} source
+                        {msg.sources.length !== 1 ? "s" : ""}
+                      </button>
 
-                    {/* Dark source passage blocks */}
-                    {expandedSources.has(i) && (
-                      <div style={{ marginTop: "8px", display: "flex", flexDirection: "column", gap: "6px" }}>
-                        {msg.sources.map((source, si) => (
-                          <SourceCard key={si} source={source} index={si + 1} />
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
+                      {sourcesExpanded && (
+                        <div
+                          id={sourcesPanelId}
+                          style={{ marginTop: "8px", display: "flex", flexDirection: "column", gap: "6px" }}
+                        >
+                          {msg.sources.map((source, si) => (
+                            <SourceCard
+                              key={`${source.document_id}-${source.chunk_index}`}
+                              source={source}
+                              index={si + 1}
+                            />
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
               </div>
+
             </div>
+          );
+        })}
 
-          </div>
-        ))}
-
-        {/* Typing indicator while waiting for a response */}
         {loading && (
           <div style={{ display: "flex", justifyContent: "flex-start" }}>
             <TypingDots />
           </div>
         )}
 
-        {/* Scroll anchor */}
         <div ref={bottomRef} />
       </div>
 
-      {/* ── Pinned input area ── */}
       <div
+        className="px-3 sm:px-4"
         style={{
           borderTop: "1px solid var(--border)",
-          padding: "12px 16px",
+          paddingTop: "12px",
+          paddingBottom: "12px",
           flexShrink: 0,
         }}
       >
-        <div
-          style={{
-            display: "flex",
-            alignItems: "flex-end",
-            gap: "8px",
-            border: "1px solid var(--border)",
-            borderRadius: "8px",
-            padding: "8px 12px",
-            background: "var(--bg)",
-            transition: "border-color 0.15s",
-          }}
-          onFocusCapture={(e) => (e.currentTarget.style.borderColor = "var(--fg)")}
-          onBlurCapture={(e) => (e.currentTarget.style.borderColor = "var(--border)")}
-        >
+        <label id={inputLabelId} className="sr-only">
+          Ask a question
+        </label>
+        <div className="chat-input-wrap">
           <textarea
             ref={textareaRef}
+            className="chat-textarea"
             value={input}
             onChange={handleInput}
             onKeyDown={handleKeyDown}
             placeholder="Ask a question… (Enter to send)"
             rows={1}
             disabled={loading}
+            aria-labelledby={inputLabelId}
             style={{
               flex: 1,
               background: "transparent",
               border: "none",
               outline: "none",
               resize: "none",
-              fontSize: "14px",
               color: "var(--fg)",
               fontFamily: "inherit",
-              minHeight: "20px",
+              minHeight: "24px",
               maxHeight: "128px",
               lineHeight: 1.5,
+              padding: 0,
+              textAlign: "left",
             }}
           />
 
-          {/* Send button */}
           <button
+            type="button"
             onClick={submit}
             disabled={!input.trim() || loading}
-            title="Send (Enter)"
+            aria-label="Send message"
+            className="touch-target interactive-btn"
             style={{
-              flexShrink: 0,
-              padding: "4px",
               border: "none",
               background: "transparent",
-              cursor: input.trim() && !loading ? "pointer" : "default",
-              color: input.trim() && !loading ? "var(--fg)" : "var(--border)",
+              cursor: input.trim() && !loading ? "pointer" : "not-allowed",
+              color: input.trim() && !loading ? "var(--fg)" : "var(--disabled)",
               lineHeight: 0,
-              transition: "color 0.15s",
+              transition: "color 0.15s var(--ease-out)",
             }}
           >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <path d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
             </svg>
           </button>
         </div>
 
         <p
-          className="font-mono"
-          style={{
-            fontSize: "10px",
-            color: "var(--muted)",
-            textAlign: "right",
-            marginTop: "4px",
-            letterSpacing: "0.02em",
-          }}
+          className="font-mono section-label"
+          style={{ textAlign: "right", marginTop: "6px", textTransform: "none", letterSpacing: "0.02em" }}
         >
           shift+enter for newline
         </p>

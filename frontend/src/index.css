@@ -1,37 +1,39 @@
 /* Tailwind v4 — single import replaces the old @tailwind directives */
 @import "tailwindcss";
 
-/*
- * Override Tailwind's font stacks so font-sans and font-mono classes
- * reference our Google Fonts choices throughout the app.
- */
 @theme {
   --font-sans: 'Outfit', system-ui, sans-serif;
   --font-mono: 'JetBrains Mono', 'Fira Code', ui-monospace, monospace;
 }
 
 /*
- * Design token system — single source of truth for colour and surface values.
- * All components read from these variables so a theme change is one edit here.
- *
- *   --bg           Page background (warm parchment white)
- *   --fg           Primary text (warm near-black)
- *   --accent       Interactive accent (same as fg for editorial restraint)
- *   --border       Subtle warm-gray dividers
- *   --muted        De-emphasised text (timestamps, labels)
- *   --surface      Secondary surfaces (hover states, sidebar background)
- *   --dark-surface Dark background for source passage blocks
- *   --dark-text    Warm light text used on dark surfaces
+ * Design tokens — warm parchment palette, OKLCH with subtle hue tint.
+ * Semantic colours meet WCAG AA on --bg / --surface.
  */
 :root {
-  --bg:           #faf9f7;
-  --fg:           #1c1b18;
-  --accent:       #1c1b18;
-  --border:       #e8e4dc;
-  --muted:        #968f84;
-  --surface:      #f0ede7;
-  --dark-surface: #18181b;
-  --dark-text:    #e4e2dd;
+  --bg:              oklch(0.98 0.008 90);
+  --fg:              oklch(0.18 0.012 85);
+  --accent:          oklch(0.18 0.012 85);
+  --border:          oklch(0.91 0.012 90);
+  --muted:           oklch(0.50 0.018 85);
+  --muted-subtle:    oklch(0.58 0.016 85);
+  --disabled:        oklch(0.62 0.012 85);
+  --surface:         oklch(0.94 0.010 90);
+  --dark-surface:    oklch(0.18 0.008 285);
+  --dark-text:       oklch(0.91 0.010 90);
+  --dark-border:     oklch(0.91 0.010 90 / 0.14);
+
+  --success:         oklch(0.42 0.11 145);
+  --warning:         oklch(0.52 0.12 75);
+  --error:           oklch(0.48 0.14 28);
+
+  --match-high:      oklch(0.78 0.14 145);
+  --match-mid:       oklch(0.80 0.12 85);
+
+  --focus-ring:      oklch(0.18 0.012 85);
+  --focus-offset:    2px;
+
+  --ease-out:        cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 body {
@@ -45,22 +47,162 @@ body {
 #root {
   width: 100%;
   height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
 }
 
-/*
- * Pulse animation for in-progress status dots.
- * Used by DocumentList to signal documents still being processed.
- */
+/* ── Shared patterns ─────────────────────────────────────────────────────── */
+
+.section-label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted-subtle);
+  margin: 0;
+}
+
+.sources-chevron {
+  transition: transform 0.15s var(--ease-out);
+}
+
+/* Keyboard focus — never remove without replacement */
+:focus {
+  outline: none;
+}
+:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: var(--focus-offset);
+}
+
+button:focus:not(:focus-visible) {
+  outline: none;
+}
+
+.interactive-btn {
+  transition: background 0.15s var(--ease-out), color 0.15s var(--ease-out);
+}
+@media (hover: hover) {
+  .interactive-btn:hover:not(:disabled) {
+    background: var(--surface);
+  }
+}
+
+.chat-input-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 12px;
+  min-height: 44px;
+  background: var(--bg);
+  transition: border-color 0.15s var(--ease-out);
+}
+.chat-input-wrap:focus-within {
+  border-color: var(--fg);
+}
+
+.error-banner {
+  color: var(--error);
+  background: oklch(0.48 0.14 28 / 0.08);
+  border: 1px solid oklch(0.48 0.14 28 / 0.22);
+  border-radius: 6px;
+  padding: 10px 12px;
+  font-size: 13px;
+  line-height: 1.55;
+  margin: 0;
+}
+
+.doc-row-selected {
+  background: var(--surface);
+}
+.doc-row-selected .doc-filename {
+  font-weight: 600;
+}
+
+/* ── Mobile layout (from adapt) ──────────────────────────────────────────── */
+
+.mobile-tab-bar {
+  padding-bottom: env(safe-area-inset-bottom, 0);
+}
+
+.chat-textarea {
+  font-size: 16px;
+}
+@media (min-width: 768px) {
+  .chat-textarea {
+    font-size: 14px;
+  }
+}
+
+.chat-bubble-user {
+  max-width: 92%;
+}
+.chat-bubble-answer {
+  max-width: 100%;
+}
+@media (min-width: 768px) {
+  .chat-bubble-user {
+    max-width: 72%;
+  }
+  .chat-bubble-answer {
+    max-width: 85%;
+  }
+}
+
+.touch-target {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  min-height: 44px;
+  flex-shrink: 0;
+}
+
+.doc-delete-btn {
+  opacity: 0.65;
+}
+@media (hover: hover) and (pointer: fine) {
+  .doc-row:not(:hover):not(:focus-within) .doc-delete-btn {
+    opacity: 0;
+  }
+  .doc-row:hover .doc-delete-btn,
+  .doc-row:focus-within .doc-delete-btn {
+    opacity: 1;
+  }
+}
+
+@media (max-width: 767px) {
+  .doc-row {
+    padding-top: 14px;
+    padding-bottom: 14px;
+  }
+  .upload-dropzone {
+    min-height: 88px;
+    padding-top: 20px;
+    padding-bottom: 20px;
+  }
+}
+
+@media (min-width: 768px) {
+  .app-aside {
+    border-bottom: none !important;
+    border-right: 1px solid var(--border);
+  }
+}
+
+/* ── Motion ──────────────────────────────────────────────────────────────── */
+
 @keyframes pulse-dot {
   0%, 100% { opacity: 1; }
-  50%       { opacity: 0.2; }
+  50%       { opacity: 0.25; }
 }
 
 .animate-pulse-dot {
-  animation: pulse-dot 1.5s ease-in-out infinite;
+  animation: pulse-dot 1.5s var(--ease-out) infinite;
 }
 
-/* Skeleton shimmer for loading placeholders */
 @keyframes shimmer {
   from { background-position: -200% 0; }
   to   { background-position:  200% 0; }
@@ -74,12 +216,47 @@ body {
     var(--surface) 75%
   );
   background-size: 200% 100%;
-  animation: shimmer 1.6s ease-in-out infinite;
+  animation: shimmer 1.6s var(--ease-out) infinite;
   border-radius: 3px;
 }
 
-/* Typing indicator bounce used in Chat.tsx TypingDots */
-@keyframes bounce {
-  0%, 80%, 100% { transform: translateY(0); }
-  40%            { transform: translateY(-5px); }
+/* Typing indicator: ease-out opacity pulse (no bounce) */
+@keyframes typing-dot {
+  0%, 100% { opacity: 0.35; transform: translateY(0); }
+  40%       { opacity: 1; transform: translateY(-3px); }
+}
+
+.typing-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--muted);
+  display: inline-block;
+  animation: typing-dot 1.1s var(--ease-out) infinite;
+}
+
+/* Visually hidden label for screen readers */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-pulse-dot,
+  .skeleton,
+  .typing-dot,
+  .sources-chevron {
+    animation: none;
+    transition: none;
+  }
+  .typing-dot {
+    opacity: 0.6;
+  }
 }

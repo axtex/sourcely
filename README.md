@@ -57,48 +57,6 @@ The frontend polls `GET /documents/{id}/status` every 3 seconds while a document
 
 ---
 
-## Local setup
-
-**Prerequisites:** Docker, Python 3.11+, Node 20+, AWS CLI
-
-```bash
-# 1. Clone
-git clone https://github.com/your-username/sourcely.git
-cd sourcely
-
-# 2. Environment variables
-cp backend/.env.example backend/.env
-# Fill in: OPENAI_API_KEY, ANTHROPIC_API_KEY, AWS_*, DATABASE_URL
-
-# 3. Database (PostgreSQL + pgvector via Docker)
-docker compose up -d
-
-# 4. Backend
-cd backend
-pip install -r requirements.txt
-uvicorn main:app --reload   # http://localhost:8000
-
-# 5. Frontend
-cd frontend
-npm install
-npm run dev                 # http://localhost:5173
-```
-
----
-
-## Environment variables
-
-| Variable | Description |
-|---|---|
-| `OPENAI_API_KEY` | For `text-embedding-3-small` |
-| `ANTHROPIC_API_KEY` | For Claude Haiku |
-| `AWS_PROFILE` | AWS CLI profile (`sourcely`) |
-| `AWS_S3_BUCKET` | S3 bucket name (`sourcely-axtex-bucket`) |
-| `AWS_REGION` | AWS region (`us-west-2`) |
-| `DATABASE_URL` | PostgreSQL connection string |
-
----
-
 ## Design decisions
 
 **Why two models?**

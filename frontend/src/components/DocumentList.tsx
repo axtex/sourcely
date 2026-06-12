@@ -3,21 +3,16 @@
  *
  * Fetches from GET /documents on mount (and whenever the parent bumps the key).
  *
- * Status polling:
- *   After upload the server returns status="uploaded". This component detects
- *   any document in a transitional state (uploaded / processing) and polls
- *   GET /documents/{id}/status every 3 seconds. The interval is cleared
- *   automatically when all docs reach a terminal state (processed / failed)
- *   or when the component unmounts.
- *
- * Loading state: shimmer skeleton rows while the initial fetch is in-flight.
- * Empty state: instructional placeholder when no documents exist yet.
+ * Status polling uses exponential backoff (3s → 10s max) while docs process.
+ * Delete uses inline confirmation (no native confirm/alert dialogs).
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import axios from "axios";
 
 const API_BASE = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
+const POLL_INITIAL_MS = 3000;
+const POLL_MAX_MS = 10000;
 
 interface Document {
   id: string;
@@ -46,20 +41,20 @@ function formatDate(iso: string): string {
   return new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
-/** Small status indicator dot with colour + optional pulse for in-progress states */
 function StatusDot({ status }: { status: Document["status"] }) {
   const color =
     status === "processed"
-      ? "#16a34a"
+      ? "var(--success)"
       : status === "processing" || status === "uploaded"
-      ? "#d97706"
-      : "#dc2626";
+      ? "var(--warning)"
+      : "var(--error)";
 
   const pulse = status === "processing" || status === "uploaded";
 
   return (
     <span
       className={pulse ? "animate-pulse-dot" : ""}
+      aria-hidden="true"
       style={{
         display: "inline-block",
         width: "6px",
@@ -72,7 +67,6 @@ function StatusDot({ status }: { status: Document["status"] }) {
   );
 }
 
-/** Shimmer skeleton rows shown while loading */
 function SkeletonList() {
   return (
     <div style={{ padding: "12px 16px", display: "flex", flexDirection: "column", gap: "14px" }}>
@@ -90,7 +84,10 @@ export default function DocumentList({ selectedId, onSelect }: Props) {
   const [docs, setDocs] = useState<Document[]>([]);
   const [loading, setLoading] = useState(true);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [confirmingId, setConfirmingId] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
+  const pollDelayRef = useRef(POLL_INITIAL_MS);
 
   useEffect(() => {
     fetchDocs();
@@ -108,7 +105,6 @@ export default function DocumentList({ selectedId, onSelect }: Props) {
     }
   }
 
-  // ── Status polling ─────────────────────────────────────────────────────────
   const transitionalIds = docs
     .filter((d) => !TERMINAL_STATUSES.has(d.status))
     .map((d) => d.id);
@@ -117,7 +113,13 @@ export default function DocumentList({ selectedId, onSelect }: Props) {
   useEffect(() => {
     if (transitionalIds.length === 0) return;
 
-    const interval = setInterval(async () => {
+    pollDelayRef.current = POLL_INITIAL_MS;
+    let cancelled = false;
+    let timeoutId: ReturnType<typeof setTimeout>;
+
+    async function tick() {
+      if (cancelled) return;
+
       await Promise.all(
         transitionalIds.map(async (id) => {
           try {
@@ -126,34 +128,54 @@ export default function DocumentList({ selectedId, onSelect }: Props) {
               prev.map((d) => (d.id === id ? { ...d, ...res.data } : d))
             );
           } catch {
-            // silent — transient network errors don't need user feedback here
+            // transient network errors: skip user feedback, retry on next tick
           }
         })
       );
-    }, 3000);
 
-    return () => clearInterval(interval);
+      if (cancelled) return;
+      timeoutId = setTimeout(tick, pollDelayRef.current);
+      pollDelayRef.current = Math.min(
+        Math.round(pollDelayRef.current * 1.5),
+        POLL_MAX_MS
+      );
+    }
+
+    tick();
+    return () => {
+      cancelled = true;
+      clearTimeout(timeoutId);
+    };
   }, [pollingKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Delete ─────────────────────────────────────────────────────────────────
-  async function handleDelete(doc: Document, e: React.MouseEvent) {
+  function requestDelete(doc: Document, e: React.MouseEvent) {
     e.stopPropagation();
-    if (!window.confirm(`Delete "${doc.filename}"? This cannot be undone.`)) return;
+    setDeleteError(null);
+    setConfirmingId(doc.id);
+  }
 
+  function cancelDelete(e: React.MouseEvent) {
+    e.stopPropagation();
+    setConfirmingId(null);
+  }
+
+  async function confirmDelete(doc: Document, e: React.MouseEvent) {
+    e.stopPropagation();
+    setConfirmingId(null);
     setDeletingId(doc.id);
+    setDeleteError(null);
+
     try {
       await axios.delete(`${API_BASE}/documents/${doc.id}`);
       if (selectedId === doc.id) onSelect(null);
       setDocs((prev) => prev.filter((d) => d.id !== doc.id));
     } catch (err) {
       console.error("Delete failed:", err);
-      alert("Failed to delete document. See console for details.");
+      setDeleteError(`Could not delete "${doc.filename}". Try again.`);
     } finally {
       setDeletingId(null);
     }
   }
-
-  // ── Render ─────────────────────────────────────────────────────────────────
 
   if (loading) {
     return (
@@ -165,16 +187,23 @@ export default function DocumentList({ selectedId, onSelect }: Props) {
   }
 
   return (
-    <div>
+    <div role="region" aria-label="Documents">
       <SectionLabel />
 
-      {/* "All documents" entry */}
+      {deleteError && (
+        <p className="error-banner text-xs" role="alert" style={{ margin: "8px 16px 0" }}>
+          {deleteError}
+        </p>
+      )}
+
       <button
+        type="button"
         onClick={() => onSelect(null)}
+        aria-pressed={selectedId === null}
+        className={`interactive-btn w-full text-left${selectedId === null ? " doc-row-selected" : ""}`}
         style={{
-          width: "100%",
-          textAlign: "left",
-          padding: "8px 16px",
+          padding: "12px 16px",
+          minHeight: "44px",
           display: "flex",
           alignItems: "center",
           gap: "8px",
@@ -183,22 +212,20 @@ export default function DocumentList({ selectedId, onSelect }: Props) {
           color: selectedId === null ? "var(--fg)" : "var(--muted)",
           border: "none",
           cursor: "pointer",
-          transition: "background 0.1s",
           fontFamily: "inherit",
+          fontWeight: selectedId === null ? 500 : 400,
         }}
       >
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
           <path d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
         </svg>
         All documents
       </button>
 
-      {/* Divider */}
       {docs.length > 0 && (
         <div style={{ margin: "2px 16px", height: "1px", background: "var(--border)" }} />
       )}
 
-      {/* Empty state */}
       {docs.length === 0 && (
         <p
           className="text-xs text-center"
@@ -210,105 +237,169 @@ export default function DocumentList({ selectedId, onSelect }: Props) {
         </p>
       )}
 
-      {/* Document rows */}
-      {docs.map((doc) => {
-        const isSelectable = doc.status === "processed";
-        const isSelected = selectedId === doc.id;
-        const isHovered = hoveredId === doc.id;
+      <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
+        {docs.map((doc) => {
+          const isSelectable = doc.status === "processed";
+          const isSelected = selectedId === doc.id;
+          const isHovered = hoveredId === doc.id;
+          const isConfirming = confirmingId === doc.id;
 
-        return (
-          <div
-            key={doc.id}
-            onClick={() => isSelectable && onSelect(doc.id)}
-            onMouseEnter={() => setHoveredId(doc.id)}
-            onMouseLeave={() => setHoveredId(null)}
-            style={{
-              position: "relative",
-              padding: "10px 16px",
-              cursor: isSelectable ? "pointer" : "default",
-              borderLeft: `2px solid ${isSelected ? "var(--fg)" : "transparent"}`,
-              background: isSelected ? "var(--surface)" : isHovered && isSelectable ? "var(--surface)" : "transparent",
-              transition: "background 0.1s, border-color 0.1s",
-              opacity: !isSelectable && doc.status !== "uploaded" && doc.status !== "processing" ? 0.5 : 1,
-            }}
-          >
-            {/* Filename */}
-            <p
-              className="text-sm font-medium truncate"
-              style={{ color: "var(--fg)", paddingRight: "20px", marginBottom: "4px" }}
-              title={doc.filename}
-            >
-              {doc.filename}
-            </p>
+          const rowContent = (
+            <>
+              <p
+                className={`doc-filename text-sm truncate${isSelected ? " font-semibold" : " font-medium"}`}
+                style={{ color: "var(--fg)", paddingRight: isConfirming ? 0 : "44px", marginBottom: "4px", marginTop: 0 }}
+                title={doc.filename}
+              >
+                {doc.filename}
+              </p>
 
-            {/* Meta row */}
-            <div
-              className="flex items-center gap-2 font-mono flex-wrap"
-              style={{ fontSize: "10px", color: "var(--muted)" }}
-            >
-              {/* Status dot + label */}
-              <span className="flex items-center gap-1">
-                <StatusDot status={doc.status} />
-                <span>{doc.status}</span>
-              </span>
-
-              {/* Chunk count — only after processing */}
-              {doc.status === "processed" && (
-                <span>{doc.chunk_count} chunks</span>
-              )}
-
-              <span>{formatBytes(doc.file_size ?? 0)}</span>
-              <span>{formatDate(doc.created_at)}</span>
-            </div>
-
-            {/* Delete button — appears on hover */}
-            <button
-              onClick={(e) => handleDelete(doc, e)}
-              disabled={deletingId === doc.id}
-              title="Delete document"
-              style={{
-                position: "absolute",
-                top: "10px",
-                right: "10px",
-                opacity: isHovered ? 1 : 0,
-                transition: "opacity 0.15s",
-                padding: "3px",
-                border: "none",
-                background: "transparent",
-                cursor: "pointer",
-                color: "var(--muted)",
-                lineHeight: 0,
-              }}
-              onMouseEnter={(e) => (e.currentTarget.style.color = "#dc2626")}
-              onMouseLeave={(e) => (e.currentTarget.style.color = "var(--muted)")}
-            >
-              {deletingId === doc.id ? (
-                <span style={{ fontSize: "11px" }}>…</span>
+              {isConfirming ? (
+                <div
+                  className="flex items-center gap-2 flex-wrap"
+                  style={{ fontSize: "11px" }}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <span style={{ color: "var(--muted)" }}>Delete this file?</span>
+                  <button
+                    type="button"
+                    onClick={(e) => confirmDelete(doc, e)}
+                    className="interactive-btn font-mono"
+                    style={{
+                      padding: "4px 8px",
+                      fontSize: "10px",
+                      color: "var(--error)",
+                      background: "transparent",
+                      border: "1px solid var(--error)",
+                      borderRadius: "4px",
+                      cursor: "pointer",
+                      fontFamily: "inherit",
+                    }}
+                  >
+                    Delete
+                  </button>
+                  <button
+                    type="button"
+                    onClick={cancelDelete}
+                    className="interactive-btn font-mono"
+                    style={{
+                      padding: "4px 8px",
+                      fontSize: "10px",
+                      color: "var(--muted)",
+                      background: "transparent",
+                      border: "1px solid var(--border)",
+                      borderRadius: "4px",
+                      cursor: "pointer",
+                      fontFamily: "inherit",
+                    }}
+                  >
+                    Cancel
+                  </button>
+                </div>
               ) : (
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                </svg>
+                <div
+                  className="flex items-center gap-2 font-mono flex-wrap"
+                  style={{ fontSize: "10px", color: "var(--muted)" }}
+                >
+                  <span className="flex items-center gap-1">
+                    <StatusDot status={doc.status} />
+                    <span>{doc.status}</span>
+                  </span>
+                  {doc.status === "processed" && <span>{doc.chunk_count} chunks</span>}
+                  <span>{formatBytes(doc.file_size ?? 0)}</span>
+                  <span>{formatDate(doc.created_at)}</span>
+                </div>
               )}
-            </button>
-          </div>
-        );
-      })}
+            </>
+          );
+
+          const rowStyle = {
+            position: "relative" as const,
+            padding: "10px 16px",
+            minHeight: "44px",
+            width: "100%",
+            textAlign: "left" as const,
+            cursor: isSelectable ? "pointer" : "default",
+            background: isSelected || (isHovered && isSelectable) ? "var(--surface)" : "transparent",
+            transition: "background 0.15s var(--ease-out)",
+            opacity: !isSelectable && doc.status !== "uploaded" && doc.status !== "processing" ? 0.5 : 1,
+            border: "none",
+            fontFamily: "inherit",
+          };
+
+          return (
+            <li key={doc.id}>
+              <div
+                className={["doc-row", isSelected ? "doc-row-selected" : ""].filter(Boolean).join(" ")}
+                onMouseEnter={() => setHoveredId(doc.id)}
+                onMouseLeave={() => setHoveredId(null)}
+                style={{ ...rowStyle, display: "block" }}
+              >
+                {isSelectable && !isConfirming ? (
+                  <button
+                    type="button"
+                    className="interactive-btn w-full text-left"
+                    onClick={() => onSelect(doc.id)}
+                    aria-pressed={isSelected}
+                    disabled={!!deletingId}
+                    style={{
+                      background: "transparent",
+                      border: "none",
+                      padding: 0,
+                      margin: 0,
+                      cursor: "pointer",
+                      fontFamily: "inherit",
+                      width: "100%",
+                    }}
+                  >
+                    {rowContent}
+                  </button>
+                ) : (
+                  rowContent
+                )}
+
+                {isSelectable && !isConfirming && (
+                  <span
+                    className="doc-delete-btn touch-target"
+                    style={{ position: "absolute", top: "4px", right: "4px" }}
+                  >
+                    <button
+                      type="button"
+                      onClick={(e) => requestDelete(doc, e)}
+                      disabled={deletingId === doc.id}
+                      aria-label={`Delete ${doc.filename}`}
+                      className="touch-target interactive-btn"
+                      style={{
+                        border: "none",
+                        background: "transparent",
+                        cursor: "pointer",
+                        color: isHovered ? "var(--error)" : "var(--muted)",
+                        lineHeight: 0,
+                        padding: 0,
+                      }}
+                    >
+                      {deletingId === doc.id ? (
+                        <span style={{ fontSize: "11px" }}>…</span>
+                      ) : (
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                          <path d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                        </svg>
+                      )}
+                    </button>
+                  </span>
+                )}
+              </div>
+            </li>
+          );
+        })}
+      </ul>
     </div>
   );
 }
 
-/** "DOCUMENTS" section header — all-caps mono label */
 function SectionLabel() {
   return (
-    <p
-      className="font-mono uppercase"
-      style={{
-        fontSize: "9px",
-        letterSpacing: "0.14em",
-        color: "var(--muted)",
-        padding: "12px 16px 6px",
-      }}
-    >
+    <p className="section-label" style={{ padding: "12px 16px 6px" }}>
       Documents
     </p>
   );
