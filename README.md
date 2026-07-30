@@ -17,21 +17,6 @@ Live: [sourcely-black.vercel.app](https://sourcely-black.vercel.app)
 
 ---
 
-## Stack
-
-| Layer | Technology |
-|---|---|
-| Frontend | React 19 + TypeScript + Tailwind v4 |
-| Backend | FastAPI (Python) |
-| Embeddings | OpenAI `text-embedding-3-small` |
-| LLM | Claude Haiku (`claude-haiku-4-5-20251001`) |
-| Vector store | PostgreSQL + pgvector |
-| File storage | AWS S3 |
-| Async processing | AWS Lambda (triggered on S3 upload) |
-| Deployment | Vercel (frontend) + AWS (backend + infra) |
-
----
-
 ## Architecture
 
 ```
@@ -73,27 +58,15 @@ Source passages are verbatim quoted text, not generated prose. Styling them like
 
 ---
 
-## Project structure
+## Stack
 
-```
-sourcely/
-├── backend/
-│   ├── main.py          # FastAPI app, routes
-│   ├── models.py        # SQLAlchemy models (Document, Chunk)
-│   ├── database.py      # DB session + pgvector setup
-│   ├── embeddings.py    # OpenAI embedding wrapper
-│   ├── rag.py           # Retrieval + Claude generation
-│   └── lambda/          # AWS Lambda handler for async processing
-│
-├── frontend/
-│   ├── src/
-│   │   ├── App.tsx              # Root layout (top bar + 35/65 split)
-│   │   └── components/
-│   │       ├── Upload.tsx       # Drag-and-drop PDF uploader
-│   │       ├── DocumentList.tsx # Sidebar list with status polling
-│   │       ├── Chat.tsx         # Q&A interface with source toggle
-│   │       └── SourceCard.tsx   # Dark-surface source passage block
-│   └── index.css        # Design tokens + Tailwind v4 config
-│
-└── docker-compose.yml   # PostgreSQL + pgvector
-```
+| Layer | Technology |
+|---|---|
+| Frontend | React 19 + TypeScript + Tailwind v4 |
+| Backend | FastAPI (Python) |
+| Embeddings | OpenAI `text-embedding-3-small` |
+| LLM | Claude Haiku (`claude-haiku-4-5-20251001`) |
+| Vector store | PostgreSQL + pgvector |
+| File storage | AWS S3 |
+| Async processing | AWS Lambda (triggered on S3 upload) |
+| Deployment | Vercel (frontend) + AWS (backend + infra) |
