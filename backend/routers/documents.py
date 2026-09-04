@@ -7,8 +7,6 @@ Upload flow (Day 2 — async):
   3. Insert document record in DB (status=uploaded)
   4. Return immediately — Lambda picks up the S3 event and processes async
   5. Frontend polls GET /documents/{id}/status every 3 s until terminal state
-
-Day 1 had step 4 call process_document() synchronously; that call is removed here.
 """
 
 import logging

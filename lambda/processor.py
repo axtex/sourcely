@@ -4,8 +4,7 @@ lambda/processor.py — S3-triggered PDF processing Lambda.
 Triggered automatically when a PDF lands in:
   s3://sourcely-axtex-bucket/documents/{doc_id}/{filename}.pdf
 
-The handler mirrors services/processor.py but is self-contained:
-  - No FastAPI or profile-based boto3 (Lambda uses its IAM role)
+Self-contained (no FastAPI, no AWS profile — Lambda uses its IAM role):
   - Reads DATABASE_URL, OPENAI_API_KEY, AWS_S3_BUCKET from env vars
   - Lazy-initialises boto3/OpenAI clients so warm invocations skip setup
 
@@ -96,7 +95,7 @@ def handler(event, context):
 # ── Processing pipeline ───────────────────────────────────────────────────────
 
 def _process(doc_id: str, s3_key: str):
-    """Full ingestion pipeline for one document. Mirrors services/processor.py."""
+    """Full ingestion pipeline for one document."""
     conn = psycopg2.connect(DATABASE_URL)
     # register_vector teaches psycopg2 to serialise Python lists as pgvector literals
     register_vector(conn)
