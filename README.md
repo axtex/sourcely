@@ -46,7 +46,7 @@ Most “chat with your PDF” tools return an answer and ask you to trust it. If
 
 ## Technical highlights
 
-- S3 upload triggers a Lambda that extracts text (PyMuPDF), chunks with a 512-token sliding window, embeds with `text-embedding-3-small`, and writes vectors to pgvector
+- S3 upload triggers a Lambda that extracts text (PyMuPDF), chunks with LangChain's `RecursiveCharacterTextSplitter` (500 characters, 50-character overlap), embeds with `text-embedding-3-small`, and writes vectors to pgvector
 - Query path embeds the question, cosine-searches the top-5 chunks, then calls Claude Haiku with those passages as the only context
 - The UI polls `GET /documents/{id}/status` with exponential backoff (3s → 10s) while a doc is in-flight
 - Retrieval and generation are separate models, so either side can be swapped without rewriting the other
@@ -59,7 +59,7 @@ Most “chat with your PDF” tools return an answer and ask you to trust it. If
 OpenAI embeddings (`text-embedding-3-small`) offer strong retrieval quality at low cost. Claude Haiku handles the generation step — grounded in the retrieved passages — which keeps answers factual and citation-ready. The two-model approach separates *retrieval quality* from *generation quality* and lets you swap either independently.
 
 **Why pgvector instead of a dedicated vector DB?**
-pgvector keeps the entire stack in one database. For this scale (PDFs in the tens to hundreds), the operational overhead of Pinecone/Weaviate isn't justified. A single `CREATE INDEX USING hnsw` gives sub-10ms similarity search.
+pgvector keeps the entire stack in one database. For this scale (PDFs in the tens to hundreds), the operational overhead of Pinecone/Weaviate isn't justified. An IVFFlat cosine index on the embedding column is enough for nearest-neighbour search without a second data store.
 
 **Why async Lambda processing?**
 Chunking and embedding a 20-page PDF takes 5–15 seconds — too long for a synchronous HTTP response. The Lambda triggered by S3 upload handles processing out-of-band, and the frontend polls status until the doc is ready.
@@ -80,7 +80,7 @@ Browser
   │   S3 trigger
   │        └──► Lambda
   │               ├── extract text (PyMuPDF)
-  │               ├── chunk (512-token sliding window)
+  │               ├── chunk (500 chars, 50 overlap)
   │               ├── embed  (OpenAI text-embedding-3-small)
   │               └── store chunks + vectors in pgvector
   │
@@ -90,7 +90,7 @@ Browser
                        └── generate answer (Claude Haiku, passages as context)
 ```
 
-The frontend polls `GET /documents/{id}/status` every 3 seconds while a document is in-flight, so the status badge updates from *uploaded → processing → processed* without a page refresh.
+The frontend polls `GET /documents/{id}/status` with exponential backoff (3s → 10s) while a document is in-flight, so the status badge updates from *uploaded → processing → processed* without a page refresh.
 
 ---
 
